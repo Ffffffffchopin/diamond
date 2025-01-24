@@ -50,7 +50,9 @@ class BatchSampler(torch.utils.data.Sampler):
             ]
             weights = [w / s for (w, s) in zip(weights, sizes) for _ in range(s)]
 
+        #print(f"Rank {self.rank} num_episodes {num_episodes}")
         episodes_partition = np.arange(self.rank, num_episodes, self.world_size)
+        #print(f"Rank {self.rank} episodes_partition {episodes_partition.shapes}")
         weights = np.array(weights[self.rank::self.world_size])
         max_eps = self.batch_size
         episode_ids = np.random.choice(episodes_partition, size=max_eps, replace=True, p=weights / weights.sum())

@@ -47,9 +47,9 @@ def process_tar(path_tar: Path, out_dir: Path, remove_tar: bool) -> None:
     d = path_tar.stem
     assert path_tar.stem.startswith(PREFIX)
     d = out_dir / "-".join(path_tar.stem[len(PREFIX) :].split("_to_"))
-    d.mkdir(exist_ok=False, parents=True)
+    #d.mkdir(exist_ok=False, parents=True)
     shutil.move(path_tar, d)
-    subprocess.run(f"cd {d} && tar -xvf {path_tar.name}", shell=True)
+    #subprocess.run(f"cd {d} && tar -xvf {path_tar.name}", shell=True)
     new_path_tar = d / path_tar.name
     if remove_tar:
         new_path_tar.unlink()
@@ -71,7 +71,7 @@ def main():
 
     if out_dir.exists():
         print(f"Wrong usage: the output directory should not exist ({args.out_dir})")
-        return
+        #return
 
     with Path("test_split.txt").open("r") as f:
         test_files = f.read().split("\n")

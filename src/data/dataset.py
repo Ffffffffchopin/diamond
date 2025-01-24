@@ -14,6 +14,7 @@ from .episode import Episode
 from .segment import Segment, SegmentId
 from .utils import make_segment
 from utils import StateDictMixin
+#from datasets import IterableDataset
 
 
 class Dataset(StateDictMixin, TorchDataset):

@@ -18,6 +18,8 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 import wandb
+import re
+from csgo.action_processing import MOUSE_X_POSSIBLES, MOUSE_Y_POSSIBLES
 
 
 ATARI_100K_GAMES = [
@@ -331,3 +333,35 @@ def try_until_no_except(func: Callable) -> None:
 def wandb_log(logs: Logs, epoch: int):
     for d in logs:
         wandb.log({"epoch": epoch, **d})
+    
+def process_DiffusionDreamDataset(example: Dict[str, Any],device: torch.device) :
+    actions = example['action']
+    actions = re.findall(r"[-+]?\d*\.\d+|\d+", actions)
+    actions = [float(actions) for action in actions]
+    key_press = np.zeros(4) 
+    if actions[2] < 0:
+        key_press[0] = 1
+    elif actions[2] >0:
+        key_press[2] =1
+    if actions[0] > 0:
+        key_press[1] = 1
+    elif actions[0] < 0:
+        key_press[3] = 1
+    mouse_x = actions[3]*100.0
+    mouse_y = actions[4]*100.0
+    x = np.clip(mouse_x, MOUSE_X_POSSIBLES[0], MOUSE_X_POSSIBLES[-1])
+    y = np.clip(mouse_y, MOUSE_Y_POSSIBLES[0], MOUSE_Y_POSSIBLES[-1])
+    mouse_x = min(MOUSE_X_POSSIBLES, key=lambda x_: abs(x_ - x))
+    mouse_y = min(MOUSE_Y_POSSIBLES, key=lambda y_: abs(y_ - y))
+    mouse_x_onehot = np.zeros(23)
+    mouse_y_onehot = np.zeros(15)
+    mouse_x_onehot[MOUSE_X_POSSIBLES.index(mouse_x)] = 1
+    mouse_y_onehot[MOUSE_Y_POSSIBLES.index(mouse_y)] = 1
+    assert mouse_x_onehot.sum() == 1
+    assert mouse_y_onehot.sum() == 1
+    example['action'] = torch.tensor(np.concatenate((key_press, mouse_x_onehot, mouse_y_onehot)), dtype=torch.float32, device=device)   
+    image = example['current_frame']
+    
+
+    
+

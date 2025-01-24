@@ -35,6 +35,8 @@ from utils import (
     try_until_no_except,
     wandb_log,
 )
+import os
+from datasets import load_dataset
 
 
 class Trainer(StateDictMixin):
@@ -108,10 +110,18 @@ class Trainer(StateDictMixin):
         num_workers = cfg.training.num_workers_data_loaders
         use_manager = cfg.training.cache_in_ram and (num_workers > 0)
         p = Path(cfg.static_dataset.path) if self._is_static_dataset else Path("dataset")
+
+        #NOTE: DiffusionDataset
+        if cfg.Diffusion.training.should:
+            self.train_dataset = load_dataset('fffffchopin/DiffusionDream_Dataset', streaming=True,split='train')
+        
+
         self.train_dataset = Dataset(p / "train", dataset_full_res, "train_dataset", cfg.training.cache_in_ram, use_manager)
         self.test_dataset = Dataset(p / "test", dataset_full_res, "test_dataset", cache_in_ram=True)
         self.train_dataset.load_from_default_path()
         self.test_dataset.load_from_default_path()
+        print(f"Train dataset: {self.train_dataset}")
+        #os._exit(0)
 
         # Create models
         self.agent = Agent(instantiate(cfg.agent, num_actions=num_actions)).to(self._device)
@@ -397,6 +407,14 @@ class Trainer(StateDictMixin):
 
         for i in trange(num_steps, desc=f"Training {name}", disable=self._rank > 0):
             batch = next(data_iterator).to(self._device) if data_iterator is not None else None
+            print(batch.__class__)
+            print(batch.obs.shape)
+            print(batch.act.shape)
+            print(len(batch.info))
+            print(batch.info[0]['original_file_id'])
+            print(batch.info[0]['full_res'].shape)
+            print(dir(batch)) 
+            os._exit(0)
             loss, metrics = model(batch) if batch is not None else model()
             loss.backward()
 

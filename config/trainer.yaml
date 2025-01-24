@@ -61,7 +61,7 @@ training:
   compile_wm: False
 
 evaluation:
-  should: True
+  should: False
   every: 20
 
 denoiser:
@@ -102,4 +102,9 @@ upsampler:
 
   optimizer: ${denoiser.optimizer}
   sigma_distribution: ${denoiser.sigma_distribution}
+
+DiffusionDream:
+  training:
+    should: True
+    n_keymap: 42
 
