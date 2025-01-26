@@ -1,5 +1,5 @@
 import math
-from typing import Generator, List
+from typing import Generator, List, Dict
 
 import torch
 import torch.nn.functional as F
@@ -14,6 +14,16 @@ def collate_segments_to_batch(segments: List[Segment]) -> Batch:
     stack = (torch.stack([getattr(s, x) for s in segments]) for x in attrs)
     return Batch(*stack, [s.info for s in segments], [s.id for s in segments])
 
+def collate_DiffusiosnDream(examples :List[Dict])->Batch:
+    obs = torch.stack([torch.stack([low_obs for low_obs in example['low_res']]) for example in examples])
+    act = torch.stack([torch.stack([act for act in example['action']]) for example in examples])
+    rew = torch.stack([torch.zeros(obs.shape[1]) for example in examples])
+    end = torch.stack([torch.zeros(obs.shape[1]) for example in examples])
+    trunc = torch.stack([torch.zeros(obs.shape[1]) for example in examples])
+    mask_padding = torch.stack([torch.zeros(obs.shape[1]) for example in examples]).bool()
+    info = [{'original_file_id':'','full_res':torch.stack([full_obs for full_obs in example['full_res']])} for example in examples]
+    segment_ids = [None for example in examples]
+    return Batch(obs,act,rew,end,trunc,mask_padding,info,segment_ids) 
 
 def make_segment(episode: Episode, segment_id: SegmentId, should_pad: bool = True) -> Segment:
     assert segment_id.start < len(episode) and segment_id.stop > 0 and segment_id.start < segment_id.stop
@@ -63,7 +73,7 @@ class DatasetTraverser:
         chunks = []
         for episode_id in range(self.dataset.num_episodes):
             episode = self.dataset.load_episode(episode_id)
-            segments = []
+            #segments = []
             for i in range(math.ceil(len(episode) / self.chunk_size)):
                 start = i * self.chunk_size
                 stop = (i + 1) * self.chunk_size

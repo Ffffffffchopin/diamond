@@ -15,7 +15,7 @@ import wandb
 
 from agent import Agent
 from coroutines.collector import make_collector, NumToCollect
-from data import BatchSampler, collate_segments_to_batch, Dataset, DatasetTraverser, CSGOHdf5Dataset
+from data import BatchSampler, collate_segments_to_batch, Dataset, DatasetTraverser, CSGOHdf5Dataset,collate_DiffusiosnDream
 from envs import make_atari_env, WorldModelEnv
 from utils import (
     broadcast_if_needed,
@@ -34,9 +34,11 @@ from utils import (
     StateDictMixin,
     try_until_no_except,
     wandb_log,
+    process_DiffusionDreamDataset
 )
 import os
 from datasets import load_dataset
+
 
 
 class Trainer(StateDictMixin):
@@ -93,7 +95,10 @@ class Trainer(StateDictMixin):
         if cfg.env.train.id == "csgo":
             assert cfg.env.path_data_low_res is not None and cfg.env.path_data_full_res is not None, "Make sure to download CSGO data and set the relevant paths in cfg.env"
             assert self._is_static_dataset
-            num_actions = cfg.env.num_actions
+            if cfg.DiffusionDream.should:
+                num_actions = cfg.DiffusionDream.num_actions
+            else:
+                num_actions = cfg.env.num_actions
             dataset_full_res = CSGOHdf5Dataset(Path(cfg.env.path_data_full_res))
         
         # Envs (atari only)
@@ -112,15 +117,17 @@ class Trainer(StateDictMixin):
         p = Path(cfg.static_dataset.path) if self._is_static_dataset else Path("dataset")
 
         #NOTE: DiffusionDataset
-        if cfg.Diffusion.training.should:
-            self.train_dataset = load_dataset('fffffchopin/DiffusionDream_Dataset', streaming=True,split='train')
+        if cfg.DiffusionDream.should:
+            self.train_dataset = load_dataset('fffffchopin/DiffusionDream_Dataset', streaming=True,split='train').map(process_DiffusionDreamDataset)
+            
+            self.test_dataset = load_dataset('fffffchopin/DiffusionDream_Dataset', streaming=True,split='train')
         
-
-        self.train_dataset = Dataset(p / "train", dataset_full_res, "train_dataset", cfg.training.cache_in_ram, use_manager)
-        self.test_dataset = Dataset(p / "test", dataset_full_res, "test_dataset", cache_in_ram=True)
-        self.train_dataset.load_from_default_path()
-        self.test_dataset.load_from_default_path()
-        print(f"Train dataset: {self.train_dataset}")
+        else:
+            self.train_dataset = Dataset(p / "train", dataset_full_res, "train_dataset", cfg.training.cache_in_ram, use_manager)
+            self.test_dataset = Dataset(p / "test", dataset_full_res, "test_dataset", cache_in_ram=True)
+            self.train_dataset.load_from_default_path()
+            self.test_dataset.load_from_default_path()
+        #print(f"Train dataset: {self.train_dataset}")
         #os._exit(0)
 
         # Create models
@@ -156,15 +163,9 @@ class Trainer(StateDictMixin):
         self.lr_sched = CommonTools(**{name: build_lr_sched(name) for name in self._model_names})
 
         # Data loaders
-
-        make_data_loader = partial(
-            DataLoader,
-            dataset=self.train_dataset,
-            collate_fn=collate_segments_to_batch,
-            num_workers=num_workers,
-            persistent_workers=(num_workers > 0),
-            pin_memory=self._use_cuda,
-            pin_memory_device=str(self._device) if self._use_cuda else "",
+        
+        
+        make_data_loader = partial(DataLoader,dataset=self.train_dataset,collate_fn=collate_segments_to_batch,num_workers=num_workers,persistent_workers=(num_workers > 0),pin_memory=self._use_cuda,pin_memory_device=str(self._device) if self._use_cuda else "",
         )
 
         make_batch_sampler = partial(BatchSampler, self.train_dataset, self._rank, self._world_size)
@@ -174,16 +175,30 @@ class Trainer(StateDictMixin):
 
         c = cfg.denoiser.training
         seq_length = cfg.agent.denoiser.inner_model.num_steps_conditioning + 1 + c.num_autoregressive_steps
+
+        if cfg.DiffusionDream.should:
+            denoiser_dataset = self.train_dataset.batch(batch_size=seq_length,drop_last_batch=True)
+
         bs = make_batch_sampler(c.batch_size, seq_length, get_sample_weights(c.sample_weights))
-        dl_denoiser_train = make_data_loader(batch_sampler=bs)
-        dl_denoiser_test = DatasetTraverser(self.test_dataset, c.batch_size, seq_length)
+        if cfg.DiffusionDream.should:
+            dl_denoiser_train = DataLoader(denoiser_dataset, batch_size=c.batch_size, collate_fn=collate_DiffusiosnDream, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=self._use_cuda, pin_memory_device=str(self._device) if self._use_cuda else "")
+            dl_denoiser_test = DataLoader(denoiser_dataset, batch_size=c.batch_size, collate_fn=collate_DiffusiosnDream, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=self._use_cuda, pin_memory_device=str(self._device) if self._use_cuda else "")
+            
+        else:
+            dl_denoiser_train = make_data_loader(batch_sampler=bs)
+            dl_denoiser_test = DatasetTraverser(self.test_dataset, c.batch_size, seq_length)
 
         if self.agent.upsampler is not None:
             c = cfg.upsampler.training
             seq_length = cfg.agent.upsampler.inner_model.num_steps_conditioning + 1 + c.num_autoregressive_steps
             bs = make_batch_sampler(c.batch_size, seq_length, get_sample_weights(c.sample_weights))
-            dl_upsampler_train = make_data_loader(batch_sampler=bs)
-            dl_upsampler_test = DatasetTraverser(self.test_dataset, c.batch_size, seq_length)
+            if cfg.DiffusionDream.should:
+                upsampler_dataset = self.train_dataset.batch(batch_size=seq_length,drop_last_batch=True)
+                dl_upsampler_train = DataLoader(upsampler_dataset, batch_size=c.batch_size, collate_fn=collate_DiffusiosnDream, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=self._use_cuda, pin_memory_device=str(self._device) if self._use_cuda else "")
+                dl_upsampler_test = DataLoader(upsampler_dataset, batch_size=c.batch_size, collate_fn=collate_DiffusiosnDream, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=self._use_cuda, pin_memory_device=str(self._device) if self._use_cuda else "")
+            else:
+                dl_upsampler_train = make_data_loader(batch_sampler=bs)
+                dl_upsampler_test = DatasetTraverser(self.test_dataset, c.batch_size, seq_length)
         else:
             dl_upsampler_train = dl_upsampler_test = None
 
@@ -407,14 +422,23 @@ class Trainer(StateDictMixin):
 
         for i in trange(num_steps, desc=f"Training {name}", disable=self._rank > 0):
             batch = next(data_iterator).to(self._device) if data_iterator is not None else None
+            '''
             print(batch.__class__)
             print(batch.obs.shape)
             print(batch.act.shape)
             print(len(batch.info))
             print(batch.info[0]['original_file_id'])
             print(batch.info[0]['full_res'].shape)
-            print(dir(batch)) 
+            print(batch.info[''])
+            print(batch.obs.__class__)
+            print(batch.rew[0])
+            print(batch.end[0])
+            print(batch.trunc[0])
+            print(batch.mask_padding[0])
+            print(batch.segment_ids)
+            #print(dir(batch)) 
             os._exit(0)
+            '''
             loss, metrics = model(batch) if batch is not None else model()
             loss.backward()
 
@@ -470,7 +494,8 @@ class Trainer(StateDictMixin):
     def save_checkpoint(self) -> None:
         if self._rank == 0:
             save_with_backup(self.state_dict(), self._path_state_ckpt)
-            self.train_dataset.save_to_default_path()
-            self.test_dataset.save_to_default_path()
+            if not self._cfg.DiffusionDream.should:
+                self.train_dataset.save_to_default_path()
+                self.test_dataset.save_to_default_path()
             self._keep_agent_copies(self.agent.state_dict(), self.epoch)
             self._save_info_for_import_script(self.epoch)

@@ -9,7 +9,8 @@ hydra:
     chdir: True
 
 wandb:
-  mode: disabled
+  #mode: disabled
+  mode: online
   project: null
   entity: null
   name: null
@@ -56,7 +57,7 @@ training:
   should: True
   num_final_epochs: 600
   cache_in_ram: False
-  num_workers_data_loaders: 4
+  num_workers_data_loaders: 0
   model_free: False # if True, turn off world_model training and RL in imagination
   compile_wm: False
 
@@ -71,7 +72,7 @@ denoiser:
     steps_first_epoch: 400
     steps_per_epoch: 400
     sample_weights: null
-    batch_size: 16
+    batch_size: 4
     grad_acc_steps: 8
     lr_warmup_steps: 100
     max_grad_norm: 10.0
@@ -104,7 +105,8 @@ upsampler:
   sigma_distribution: ${denoiser.sigma_distribution}
 
 DiffusionDream:
-  training:
-    should: True
-    n_keymap: 42
+  should: True
+  num_actions: 42
+  #training: 
+    
 

@@ -19,7 +19,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 import wandb
 import re
-from csgo.action_processing import MOUSE_X_POSSIBLES, MOUSE_Y_POSSIBLES
+#from csgo.action_processing import MOUSE_X_POSSIBLES, MOUSE_Y_POSSIBLES
+import torchvision.transforms.functional as T
+from torchvision.transforms import ToTensor
 
 
 ATARI_100K_GAMES = [
@@ -51,6 +53,49 @@ ATARI_100K_GAMES = [
     "UpNDown",
 ]
 
+MOUSE_X_POSSIBLES = [
+    -1000,
+    -500,
+    -300,
+    -200,
+    -100,
+    -60,
+    -30,
+    -20,
+    -10,
+    -4,
+    -2,
+    0,
+    2,
+    4,
+    10,
+    20,
+    30,
+    60,
+    100,
+    200,
+    300,
+    500,
+    1000,
+]
+
+MOUSE_Y_POSSIBLES = [
+    -200,
+    -100,
+    -50,
+    -20,
+    -10,
+    -4,
+    -2,
+    0,
+    2,
+    4,
+    10,
+    20,
+    50,
+    100,
+    200,
+]
 
 Logs = List[Dict[str, float]]
 LossAndLogs = Tuple[Tensor, Dict[str, Any]]
@@ -334,10 +379,10 @@ def wandb_log(logs: Logs, epoch: int):
     for d in logs:
         wandb.log({"epoch": epoch, **d})
     
-def process_DiffusionDreamDataset(example: Dict[str, Any],device: torch.device) :
+def process_DiffusionDreamDataset(example: Dict[str, Any]) :
     actions = example['action']
     actions = re.findall(r"[-+]?\d*\.\d+|\d+", actions)
-    actions = [float(actions) for action in actions]
+    actions = [float(action) for action in actions]
     key_press = np.zeros(4) 
     if actions[2] < 0:
         key_press[0] = 1
@@ -359,8 +404,22 @@ def process_DiffusionDreamDataset(example: Dict[str, Any],device: torch.device) 
     mouse_y_onehot[MOUSE_Y_POSSIBLES.index(mouse_y)] = 1
     assert mouse_x_onehot.sum() == 1
     assert mouse_y_onehot.sum() == 1
-    example['action'] = torch.tensor(np.concatenate((key_press, mouse_x_onehot, mouse_y_onehot)), dtype=torch.float32, device=device)   
-    image = example['current_frame']
+    example['action'] = torch.tensor(np.concatenate((key_press, mouse_x_onehot, mouse_y_onehot)), dtype=torch.float32)
+    image = ToTensor()(example['current_frame'])   
+    image = torch.tensor(image, dtype=torch.float32, )
+    #print("shape:",image.shape)
+    example ['full_res'] = T.resize(
+            image, (150, 280), interpolation=T.InterpolationMode.BICUBIC
+        )
+    example ['full_res']  = example ['full_res'].float().div(255).mul(2).sub(1)
+    example['low_res'] = T.resize(
+            image, (30, 56), interpolation=T.InterpolationMode.BICUBIC
+        )
+    example['low_res'] = example['low_res'].float().div(255).mul(2).sub(1)
+    return example
+
+
+    
     
 
     
